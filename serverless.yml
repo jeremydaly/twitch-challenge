@@ -26,7 +26,7 @@ custom:
       userPoolId:  { Ref: CognitoUserPool }
     mappingTemplates:
       - dataSource: lambdaDatasource
-        type: Query
+        type: Mutation
         field: bookProperty
         request: bookProperty-request-mapping-template.vtl
         response: bookProperty-response-mapping-template.vtl
