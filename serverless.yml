@@ -6,7 +6,7 @@ plugins:
 
 provider:
   name: aws
-  runtime: nodejs
+  runtime: nodejs10.x
 
   iamRoleStatements:
     - Effect: "Allow"
@@ -14,7 +14,7 @@ provider:
         - "dynamodb:GetItem"
       Resource: "arn:aws:dynamodb:#{AWS::Region}:*:table/${self:custom.PROPERTY_TABLE}"
 
-custom:      
+custom:
   PROPERTY_TABLE: property-table
 
   appSync:
@@ -23,19 +23,24 @@ custom:
     userPoolConfig:
       awsRegion:  #{AWS::Region}
       defaultAction: ALLOW
-      userPoolId:  { Ref: CognitoUserPool }  
+      userPoolId:  { Ref: CognitoUserPool }
     mappingTemplates:
       - dataSource: lambdaDatasource
         type: Query
-        field: getImageSignedPath
-        request: getImageSignedPath-request-mapping-template.vtl
-        response: getImageSignedPath-response-mapping-template.vtl
+        field: bookProperty
+        request: bookProperty-request-mapping-template.vtl
+        response: bookProperty-response-mapping-template.vtl
+      - dataSource: lambdaDatasource
+        type: Query
+        field: allProperties
+        request: allProperties-request-mapping-template.vtl
+        response: allProperties-response-mapping-template.vtl
     dataSources:
       - type: AMAZON_DYNAMODB
         name: Properties
         description: 'Table containing the metadata of the properties'
         config:
-          tableName: { Ref: PropertiesTable } 
+          tableName: { Ref: PropertiesTable }
           iamRoleStatements:
             - Effect: "Allow"
               Action:
@@ -49,7 +54,7 @@ custom:
         description: 'Lambda DataSource'
         config:
           functionName: graphql
-          iamRoleStatements: 
+          iamRoleStatements:
             - Effect: "Allow"
               Action:
                 - "lambda:invokeFunction"
