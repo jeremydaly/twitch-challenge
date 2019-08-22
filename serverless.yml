@@ -6,7 +6,7 @@ plugins:
 
 provider:
   name: aws
-  runtime: nodejs
+  runtime: nodejs10.x
 
   iamRoleStatements:
     - Effect: "Allow"
