@@ -1,0 +1,199 @@
+service: fire-anb
+
+plugins:
+   - serverless-appsync-plugin
+   - serverless-pseudo-parameters
+
+provider:
+  name: aws
+  runtime: nodejs
+
+  iamRoleStatements:
+    - Effect: "Allow"
+      Action:
+        - "dynamodb:GetItem"
+      Resource: "arn:aws:dynamodb:#{AWS::Region}:*:table/${self:custom.PROPERTY_TABLE}"
+
+custom:      
+  PROPERTY_TABLE: property-table
+
+  appSync:
+    name:  fire-anb
+    authenticationType: AMAZON_COGNITO_USER_POOLS
+    userPoolConfig:
+      awsRegion:  #{AWS::Region}
+      defaultAction: ALLOW
+      userPoolId:  { Ref: CognitoUserPool }  
+    mappingTemplates:
+      - dataSource: lambdaDatasource
+        type: Query
+        field: getImageSignedPath
+        request: getImageSignedPath-request-mapping-template.vtl
+        response: getImageSignedPath-response-mapping-template.vtl
+    dataSources:
+      - type: AMAZON_DYNAMODB
+        name: Properties
+        description: 'Table containing the metadata of the properties'
+        config:
+          tableName: { Ref: PropertiesTable } 
+          iamRoleStatements:
+            - Effect: "Allow"
+              Action:
+                - "dynamodb:GetItem"
+                - "dynamodb:PutItem"
+              Resource:
+                - "arn:aws:dynamodb:#{AWS::Region}:*:table/${self:custom.PROPERTY_TABLE}"
+                - "arn:aws:dynamodb:#{AWS::Region}:*:table/${self:custom.PROPERTY_TABLE}/*"
+      - type: AWS_LAMBDA
+        name: lambdaDatasource
+        description: 'Lambda DataSource'
+        config:
+          functionName: graphql
+          iamRoleStatements: 
+            - Effect: "Allow"
+              Action:
+                - "lambda:invokeFunction"
+              Resource:
+                - "arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:${self:service}-dev-graphql"
+                - "arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:${self:service}-dev-graphql:*"
+
+functions:
+  graphql:
+    handler: handler.graphql
+
+resources:
+  Resources:
+    # Cognito - User pool
+    CognitoUserPool:
+      Type: AWS::Cognito::UserPool
+      Properties:
+        UserPoolName: ${self:service.name}_user_pool
+        AutoVerifiedAttributes:
+          - email
+        UsernameAttributes:
+          - email
+    # Cognito - Client
+    CognitoUserPoolClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        ClientName: ${self:service.name}_client
+        UserPoolId:
+          Ref: CognitoUserPool
+    # Cognito - Identity
+    CognitoIdentityPool:
+      Type: AWS::Cognito::IdentityPool
+      Properties:
+        IdentityPoolName: fire_anb_identity_pool
+        AllowUnauthenticatedIdentities: false
+        CognitoIdentityProviders:
+          - ClientId:
+              Ref: CognitoUserPoolClient
+            ProviderName:
+              Fn::GetAtt: [CognitoUserPool, ProviderName]
+    # Cognito roles
+    CognitoIdentityPoolRoles:
+      Type: AWS::Cognito::IdentityPoolRoleAttachment
+      Properties:
+        IdentityPoolId:
+          Ref: CognitoIdentityPool
+        Roles:
+          authenticated:
+            Fn::GetAtt: [CognitoAuthRole, Arn]
+          unauthenticated:
+            Fn::GetAtt: [CognitoUnauthRole, Arn]
+    CognitoAuthRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: ${self:service.name}_appAuthRole
+        Path: /
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: "Allow"
+              Principal:
+                Federated: "cognito-identity.amazonaws.com"
+              Action:
+                - "sts:AssumeRoleWithWebIdentity"
+              Condition:
+                StringEquals:
+                  "cognito-identity.amazonaws.com:aud":
+                    Ref: CognitoIdentityPool
+                "ForAnyValue:StringLike":
+                  "cognito-identity.amazonaws.com:amr": authenticated
+        Policies:
+          - PolicyName: "CognitoAuthorizedPolicy"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: "Allow"
+                  Action:
+                    - "mobileanalytics:PutEvents"
+                    - "cognito-sync:*"
+                    - "cognito-identity:*"
+                  Resource: "*"
+                - Effect: "Allow"
+                  Action:
+                    - "execute-api:Invoke"
+                  Resource: "*"
+    CognitoUnauthRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: ${self:service.name}_appUnauthRole
+        Path: /
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: "Allow"
+              Principal:
+                Federated: "cognito-identity.amazonaws.com"
+              Action:
+                - "sts:AssumeRoleWithWebIdentity"
+              Condition:
+                StringEquals:
+                  "cognito-identity.amazonaws.com:aud":
+                    Ref: CognitoIdentityPool
+                "ForAnyValue:StringLike":
+                  "cognito-identity.amazonaws.com:amr": unauthenticated
+        Policies:
+          - PolicyName: "CognitoUnauthorizedPolicy"
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: "Allow"
+                  Action:
+                    - "mobileanalytics:PutEvents"
+                    - "cognito-sync:*"
+                    - "cognito-identity:*"
+                  Resource: "*"
+    #Properties Tables
+    PropertiesTable:
+      Type: "AWS::DynamoDB::Table"
+      Properties:
+        KeySchema:
+          - AttributeName: pk
+            KeyType: HASH
+          - AttributeName: sk
+            KeyType: RANGE
+        AttributeDefinitions:
+          - AttributeName: pk
+            AttributeType: S
+          - AttributeName: sk
+            AttributeType: S
+          - AttributeName: data
+            AttributeType: S
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+        TableName: ${self:custom.PROPERTY_TABLE}
+        GlobalSecondaryIndexes:
+          - IndexName: secondary_index
+            KeySchema:
+              - AttributeName: sk
+                KeyType: HASH
+              - AttributeName: data
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+            ProvisionedThroughput:
+                ReadCapacityUnits: 1
+                WriteCapacityUnits: 1
