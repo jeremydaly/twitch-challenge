@@ -1,13 +1,26 @@
 type Query {
-	getImageSignedPath(imageName: String!): String!
+	allProperties: [Property]
 }
 
 type Mutation {
-	saveImage(name: String!, s3Path: String!): Property!
+	bookProperty(property_id: String!, date: String!): Availability!
 }
 
 type Property {
 	property_id: String!
+	property_name: String
+	property_address: String
+	property_description: String
+	property_image: String
+	property_status: String!
+	property_owner: String!
+}
+
+type Availability {
+	property_id: String!
+	date: String!
+	user_id: String!
+	status: String!
 }
 
 schema {
